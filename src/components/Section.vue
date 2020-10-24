@@ -1,14 +1,15 @@
 <template>
     <!-- Horizontal section: (grid + sidebar) -->
     <div class="trading-vue-section">
-        <chart-legend
+        <chart-legend ref="legend"
             v-bind:values="section_values"
             v-bind:grid_id="grid_id"
             v-bind:common="legend_props"
             v-bind:meta_props="get_meta_props"
             v-on:legend-button-click="button_click">
         </chart-legend>
-        <grid v-bind="grid_props" v-bind:grid_id="grid_id"
+        <grid v-bind="grid_props" ref="grid"
+            v-bind:grid_id="grid_id"
              v-on:register-kb-listener="register_kb"
              v-on:remove-kb-listener="remove_kb"
              v-on:range-changed="range_changed"
@@ -20,11 +21,10 @@
              v-on:rezoom-range="rezoom_range">
         </grid>
         <sidebar
-            :ref="'grid-' + grid_id"
+            :ref="'sb-' + grid_id"
             v-bind="sidebar_props"
             v-bind:grid_id="grid_id"
             v-bind:rerender="rerender"
-            v-bind:shaders="shaders"
             v-on:sidebar-transform="sidebar_transform">
         </sidebar>
     </div>
@@ -45,6 +45,9 @@ export default {
         Grid,
         Sidebar,
         ChartLegend
+    },
+    mounted() {
+        this.init_shaders(this.$props.common.skin)
     },
     methods: {
         range_changed(r) {
@@ -78,12 +81,17 @@ export default {
             this.$emit('remove-kb-listener', event)
         },
         rezoom_range(event) {
-            let id = 'grid-' + event.grid_id
+            let id = 'sb-' + event.grid_id
             if (this.$refs[id]) {
                 this.$refs[id].renderer.rezoom_range(
                     event.z, event.diff1, event.diff2
                 )
             }
+        },
+        ghash(val) {
+            // Measures grid heights configuration
+            let hs = val.layout.grids.map(x => x.height)
+            return hs.reduce((a, b) => a + b, '')
         }
     },
     computed: {
@@ -105,6 +113,7 @@ export default {
             p.width = p.layout.grids[id].width
             p.height = p.layout.grids[id].height
             p.y_transform = p.y_ts[id]
+            p.shaders = this.grid_shaders
             return p
         },
         sidebar_props() {
@@ -113,6 +122,7 @@ export default {
             p.width = p.layout.grids[id].sb
             p.height = p.layout.grids[id].height
             p.y_transform = p.y_ts[id]
+            p.shaders = this.sb_shaders
             return p
         },
         section_values() {
@@ -128,8 +138,8 @@ export default {
             // Split offchart data between offchart grids
             if (id > 0) {
                 let all = p.data
+                p.offchart = all
                 p.data = [p.data[id - 1]]
-                // TODO: show correct legend values
                 p.data.push(...all.filter(
                     x => x.grid && x.grid.id === id))
             }
@@ -137,15 +147,27 @@ export default {
         },
         get_meta_props() {
             return this.meta_props
+        },
+        grid_shaders() {
+            return this.shaders.filter(x => x.target === 'grid')
+        },
+        sb_shaders() {
+            return this.shaders.filter(x => x.target === 'sidebar')
         }
     },
     watch: {
         common: {
             handler: function (val, old_val) {
+                let newhash = this.ghash(val)
+                if (newhash !== this.last_ghash) {
+                    this.rerender++
+                }
+
                 if(val.data.length !== old_val.data.length) {
                     // Look at this nasty trick!
                     this.rerender++
                 }
+                 this.last_ghash = newhash
             },
             deep: true
         }
@@ -153,8 +175,8 @@ export default {
     data() {
         return {
             meta_props: {},
-            shaders: [],
-            rerender: 0
+            rerender: 0,
+            last_ghash: ''
         }
     }
 }

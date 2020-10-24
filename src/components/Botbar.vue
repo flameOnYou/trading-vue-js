@@ -8,7 +8,8 @@ export default {
     name: 'Botbar',
     props: [
         'sub', 'layout', 'range', 'interval', 'cursor', 'colors', 'font',
-        'width', 'height', 'rerender', 'tv_id', 'config', 'shaders'
+        'width', 'height', 'rerender', 'tv_id', 'config', 'shaders',
+        'timezone'
     ],
     mixins: [Canvas],
     mounted() {
@@ -30,9 +31,15 @@ export default {
                 height: sett.height,
             },
             style: {
-                backgroundColor: this.$props.colors.colorBack
+                backgroundColor: this.$props.colors.back
             },
         })
+    },
+    computed: {
+        bot_shaders() {
+            return this.$props.shaders
+                .filter(x => x.target === 'botbar')
+        }
     },
     watch: {
         range: {

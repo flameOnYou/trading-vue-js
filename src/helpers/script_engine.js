@@ -3,6 +3,8 @@
 
 import ScriptEnv from './script_env.js'
 import Utils from '../stuff/utils.js'
+import * as u from './script_utils.js'
+import symstd from './symstd.js'
 import TS from './script_ts.js'
 
 const DEF_LIMIT = 5   // default buff length
@@ -19,6 +21,9 @@ class ScriptEngine {
         this.update_queue = []  // Live update queue
         this.sett = {}
         this.state = {}
+        this.mods = {}          // Modules (extensions)
+        this.std_plus = {}      // Functions to inject
+        this.tf = undefined     // Main chart TF
     }
 
     exec_all() {
@@ -54,6 +59,7 @@ class ScriptEngine {
     async exec_sel(delta) {
 
         // Wait for the data
+        // TODO: Check data requirements
         if (!this.data.ohlcv) return
 
         let sel = Object.keys(delta).filter(x => x in this.map)
@@ -66,7 +72,7 @@ class ScriptEngine {
         for (var id in delta) {
             if (!this.map[id]) continue
 
-            let props = this.map[id].src.props
+            let props = this.map[id].src.props || {}
             for (var k in props) {
                 if (k in delta[id]) {
                     props[k].val = delta[id][k]
@@ -89,31 +95,53 @@ class ScriptEngine {
         if (!s.src.conf) s.src.conf = {}
 
         if (s.src.init) {
-            s.src.init_src = this.get_raw_src(s.src.init)
+            s.src.init_src = u.get_raw_src(s.src.init)
         }
         if (s.src.update) {
-            s.src.upd_src = this.get_raw_src(s.src.update)
+            s.src.upd_src = u.get_raw_src(s.src.update)
+        }
+        if (s.src.post) {
+            s.src.post_src = u.get_raw_src(s.src.post)
         }
 
-        s.env = new ScriptEnv(s, {
+        // Parse non-default symbols
+        symstd.parse(s)
+
+        for (var id in this.mods) {
+            if (this.mods[id].pre_env) {
+                this.mods[id].pre_env(s.uuid, s)
+            }
+        }
+
+        s.env = new ScriptEnv(s, Object.assign({
             open: this.open,
             high: this.high,
             low: this.low,
             close: this.close,
             vol: this.vol,
-            ohlcv: this.data.ohlcv,
+            dss: this.data,
             t: () => this.t,
             iter: () => this.iter,
-        })
+            tf: this.tf,
+            range: this.range
+        }, this.tss))
 
         this.map[s.uuid] = s
 
+        for (var id in this.mods) {
+            if (this.mods[id].new_env) {
+                this.mods[id].new_env(s.uuid, s)
+            }
+        }
+
+        // Build te box after mod's interfaces injected
+        s.env.build()
     }
 
     // Live update
     update(candle) {
 
-        if (!this.data.ohlcv || !this.data.ohlcv.length) {
+        if (!this.data.ohlcv || !this.data.ohlcv.data.length) {
             return
         }
 
@@ -122,8 +150,11 @@ class ScriptEngine {
             return
         }
 
+        let mfs1 = this.make_mods_hooks('pre_step')
+        let mfs2 = this.make_mods_hooks('post_step')
+
         try {
-            let ohlcv = this.data.ohlcv
+            let ohlcv = this.data.ohlcv.data
             let i = ohlcv.length - 1
             let last = ohlcv[i]
             let sel = Object.keys(this.map)
@@ -143,9 +174,18 @@ class ScriptEngine {
             this.t = ohlcv[i][0]
             this.step(ohlcv[i], unshift)
 
+            for (var m = 0; m < mfs1.length; m++) {
+                mfs1[m](sel) // pre_step
+            }
+
             for (var id of sel) {
                 this.map[id].env.step(unshift)
             }
+
+            for (var m = 0; m < mfs2.length; m++) {
+                mfs2[m](sel) // post_step
+            }
+
             this.limit()
             this.send_update()
             this.send_state()
@@ -171,6 +211,12 @@ class ScriptEngine {
         this.low = TS('low', [])
         this.close = TS('close', [])
         this.vol = TS('vol', [])
+
+        // Shared TSs
+        this.tss = {}
+        this.std_plus = {}
+
+        // Engine state
         this.iter = 0
         this.t = 0
         this.skip = false // skip the step
@@ -180,8 +226,15 @@ class ScriptEngine {
         return true
     }
 
+    // Inject/override functions in the std lib object
+    std_inject(std) {
+        let proto = Object.getPrototypeOf(std)
+        Object.assign(proto, this.std_plus)
+        return std
+    }
+
     send_state() {
-        this.onmessage('engine-state', {
+        this.send('engine-state', {
             scripts: Object.keys(this.map).length,
             last_perf: this.perf,
             iter: this.iter,
@@ -191,7 +244,7 @@ class ScriptEngine {
     }
 
     send_update() {
-        this.onmessage(
+        this.send(
             'overlay-update', this.format_update()
         )
     }
@@ -202,37 +255,32 @@ class ScriptEngine {
         }
     }
 
-    get_raw_src(f) {
-        if (typeof f === 'string') return f
-        let src = f.toString()
-        return src.slice(
-            src.indexOf("{") + 1,
-            src.lastIndexOf("}")
-        )
-    }
-
     async run(sel) {
 
-        this.onmessage('engine-state', { running: true })
+        this.send('engine-state', { running: true })
 
         var t1 = Utils.now()
         sel = sel || Object.keys(this.map)
+
+        this.pre_run_mods(sel)
+        let mfs1 = this.make_mods_hooks('pre_step')
+        let mfs2 = this.make_mods_hooks('post_step')
 
         try {
 
             for (var id of sel) {
                 this.map[id].env.init()
-                this.init_conf(id)
             }
 
-            let ohlcv = this.data.ohlcv
+            let ohlcv = this.data.ohlcv.data
             let start = this.start(ohlcv)
 
             for (var i = start; i < ohlcv.length; i++) {
 
                 // Make a pause to read new WW msg
                 // TODO: speedup pause()
-                if (i % 1000 === 0) await Utils.pause(0)
+                // TODO: emit progress %
+                if (i % 5000 === 0) await Utils.pause(0)
                 if (this.restarted()) return
 
                 this.iter = i - start
@@ -241,21 +289,34 @@ class ScriptEngine {
 
                 // SLOW DOWN TEST:
                 //for (var k = 1; k < 1000000; k++) {}
+                for (var m = 0; m < mfs1.length; m++) {
+                    mfs1[m](sel) // pre_step
+                }
 
                 for (var id of sel) this.map[id].env.step()
 
+                for (var m = 0; m < mfs2.length; m++) {
+                    mfs2[m](sel) // post_step
+                }
                 this.limit()
             }
+
+            for (var id of sel) {
+                this.map[id].env.output.post()
+            }
+
         } catch(e) {
             console.log(e)
         }
+
+        this.post_run_mods(sel)
 
         this.perf = Utils.now() - t1
         //console.log('Perf',  this.perf)
 
         this.running = false
 
-        this.onmessage('overlay-data', this.format_map(sel))
+        this.send('overlay-data', this.format_map(sel))
     }
 
     step(data, unshift = true) {
@@ -265,12 +326,19 @@ class ScriptEngine {
             this.low.unshift(data[3])
             this.close.unshift(data[4])
             this.vol.unshift(data[5])
+            for (var id in this.tss) {
+                if (this.tss[id].__tf__) this.tss[id].__fn__()
+                else this.tss[id].unshift(this.tss[id].__fn__())
+            }
         } else {
             this.open[0] = data[1]
             this.high[0] = data[2]
             this.low[0] = data[3]
             this.close[0] = data[4]
             this.vol[0] = data[5]
+            for (var id in this.tss) {
+                this.tss[id] = this.tss[id].__fn__()
+            }
         }
     }
 
@@ -309,12 +377,29 @@ class ScriptEngine {
         }
     }
 
-    format_map(sel) {
+    format_map(sel, range, output) {
         sel = sel || Object.keys(this.map)
         let res = []
         for (var id of sel) {
             let x = this.map[id]
-            res.push({ id: id, data: x.env.data })
+            let f = x => x
+            if ((x.output === false || x.output === 'none') &&
+                !output) {
+                res.push({id: id, data: null})
+                continue
+            }
+            if (x.output === 'range' || range) {
+                var [t1, t2] = range || this.range
+                f = x => x.filter(
+                    y => y[0] >= t1 && y[0] <= t2
+                )
+            }
+            res.push({
+                id: id, data: f(x.env.data), new_ovs: {
+                    onchart: u.ovf(x.env.onchart, f),
+                    offchart: u.ovf(x.env.offchart, f)
+                }
+            })
         }
         return res
     }
@@ -323,23 +408,25 @@ class ScriptEngine {
         let res = []
         for (var id in this.map) {
             let x = this.map[id]
+            if (x.output === false) {
+                res.push({id: id, data: null})
+                continue
+            }
             res.push({
                 id: id,
                 data: x.env.data[x.env.data.length - 1]
             })
+            for (var side of ['onchart', 'offchart']) {
+                for (var id in x.env[side]) {
+                    let y = x.env[side][id]
+                    res.push({
+                        id: `${side}.${id}`,
+                        data: y.data[y.data.length - 1]
+                    })
+                }
+            }
         }
         return res
-    }
-
-    init_conf(id) {
-        /*if (this.map[id].src.conf.renderer) {
-            this.onmessage('change-overlay', {
-                id: id,
-                fileds: {
-                    type: this.map[id].src.conf.renderer
-                }
-            })
-        }*/
     }
 
     restarted() {
@@ -356,6 +443,65 @@ class ScriptEngine {
     remove_scripts(ids) {
         for (var id of ids) delete this.map[id]
         this.send_state()
+    }
+
+    pre_run_mods(sel) {
+        for (var id in this.mods) {
+            if (this.mods[id].pre_run) {
+                this.mods[id].pre_run(sel)
+            }
+        }
+    }
+
+    post_run_mods(sel) {
+        for (var id in this.mods) {
+            if (this.mods[id].post_run) {
+                this.mods[id].post_run(sel)
+            }
+        }
+    }
+
+    make_mods_hooks(name) {
+        let arr = []
+        for (var id in this.mods) {
+            if (this.mods[id][name]) {
+                arr.push(this.mods[id][name]
+                    .bind(this.mods[id]))
+            }
+        }
+        return arr
+    }
+
+    data_required(s) {
+
+        let all = Object.values(this.map)
+        if (s) all.push(s)
+
+        let types = [{ type: 'OHLCV' }]
+        for (var s of all) {
+            if (s.src.data) {
+                let reqs = Object.values(s.src.data)
+                types.push(...reqs.map(x => ({
+                    id: s.uuid,
+                    type: x.type
+                })))
+            }
+        }
+        let unf = types.filter(x =>
+            !Object.values(this.data)
+            .find(y => y.type === x.type)
+        )
+        return unf.length ? unf : null
+    }
+
+    // Match dataset id using script id & required type
+    match_ds(id, type) {
+        // TODO: develop further
+        for (var id in this.data) {
+            if (this.data[id].type === type) {
+                return id
+            }
+        }
     }
 }
 

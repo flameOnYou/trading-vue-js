@@ -36,10 +36,10 @@ export default class Grid {
 
     listeners() {
 
-        var hamster = Hamster(this.canvas)
-        hamster.wheel((event, delta) => this.mousezoom(-delta * 50, event))
+        this.hm = Hamster(this.canvas)
+        this.hm.wheel((event, delta) => this.mousezoom(-delta * 50, event))
 
-        var mc = new Hammer.Manager(this.canvas)
+        let mc = this.mc = new Hammer.Manager(this.canvas)
         mc.add(new Hammer.Pan({ threshold: 0}))
         mc.add(new Hammer.Tap())
         mc.add(new Hammer.Pinch())
@@ -110,19 +110,16 @@ export default class Grid {
             if (this.pinch) this.pinchzoom(event.scale)
         })
 
-        window.addEventListener("gesturestart", event => {
-            event.preventDefault()
-        })
-
-        window.addEventListener("gesturechange", event => {
-            event.preventDefault()
-        })
-
-        window.addEventListener("gestureend", event => {
-            event.preventDefault()
-        })
+        let add = addEventListener
+        add("gesturestart", this.gesturestart)
+        add("gesturechange", this.gesturechange)
+        add("gestureend", this.gestureend)
 
     }
+
+    gesturestart(event) { event.preventDefault() }
+    gesturechange(event) { event.preventDefault() }
+    gestureend(event) { event.preventDefault() }
 
     mousemove(event) {
 
@@ -159,7 +156,7 @@ export default class Grid {
         this.comp.$emit('cursor-locked', true)
         if (event.defaultPrevented) return
         this.comp.$emit('custom-event', {
-            event: 'grid-mousedown', args: [this.id]
+            event: 'grid-mousedown', args: [this.id, event]
         })
     }
 
@@ -197,6 +194,8 @@ export default class Grid {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
         this.grid()
 
+        if (this.$p.shaders.length) this.apply_shaders()
+
         let overlays = []
         overlays.push(...this.overlays)
 
@@ -218,10 +217,31 @@ export default class Grid {
         }
     }
 
+    apply_shaders() {
+        let layout = this.$p.layout.grids[this.id]
+        let props = {
+            layout: layout,
+            range: this.range,
+            interval: this.interval,
+            tf: layout.ti_map.tf,
+            cursor: this.cursor,
+            colors: this.$p.colors,
+            sub: this.data,
+            font: this.$p.font,
+            config: this.$p.config,
+            meta: this.$p.meta
+        }
+        for (var s of this.$p.shaders) {
+            this.ctx.save()
+            s.draw(this.ctx, props)
+            this.ctx.restore()
+        }
+    }
+
     // Actually draws the grid (for real)
     grid() {
 
-        this.ctx.strokeStyle = this.$p.colors.colorGrid
+        this.ctx.strokeStyle = this.$p.colors.grid
         this.ctx.beginPath()
 
         const ymax = this.layout.height
@@ -246,7 +266,7 @@ export default class Grid {
     }
 
     upper_border() {
-        this.ctx.strokeStyle = this.$p.colors.colorScale
+        this.ctx.strokeStyle = this.$p.colors.scale
         this.ctx.beginPath()
         this.ctx.moveTo(0, 0.5)
         this.ctx.lineTo(this.layout.width, 0.5)
@@ -421,5 +441,14 @@ export default class Grid {
                 keys.emit(name, event)
             }
         }
+    }
+
+    destroy() {
+        let rm = removeEventListener
+        rm("gesturestart", this.gesturestart)
+        rm("gesturechange", this.gesturechange)
+        rm("gestureend", this.gestureend)
+        if (this.mc) this.mc.destroy()
+        if (this.hm) this.hm.unwheel()
     }
 }

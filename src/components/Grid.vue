@@ -26,7 +26,7 @@ export default {
     props: [
         'sub', 'layout', 'range', 'interval', 'cursor', 'colors', 'overlays',
         'width', 'height', 'data', 'grid_id', 'y_transform', 'font', 'tv_id',
-        'config', 'meta'
+        'config', 'meta', 'shaders'
     ],
     mixins: [Canvas, UxList],
     components: { Crosshair, KeyboardListener },
@@ -57,6 +57,9 @@ export default {
         this.$on('custom-event', e =>
             this.on_ux_event(e, 'grid'))
     },
+    beforeDestroy () {
+        if (this.renderer) this.renderer.destroy()
+    },
     mounted() {
         const el = this.$refs['canvas']
         this.renderer = new Grid(el, this)
@@ -78,7 +81,7 @@ export default {
                 overflow: 'hidden'
             },
             style: {
-                backgroundColor: this.$props.colors.colorBack
+                backgroundColor: this.$props.colors.back
             },
             hs: [
                 h(Crosshair, {
@@ -119,7 +122,7 @@ export default {
                 event: 'remove-layer-meta',
                 args: [grid_id, layer]
             })
-            this.remove_all_ux()
+            this.remove_all_ux(layer)
         },
         get_overlays(h) {
             // Distributes overlay data & settings according
@@ -218,15 +221,25 @@ export default {
             handler: function(ovs) {
                 for (var ov of ovs) {
                     for (var comp of this.$children) {
-                        if (comp._name === `<${ov.name}>`) {
+                        if (typeof comp.id !== 'string') continue
+                        let tuple = comp.id.split('_')
+                        tuple.pop()
+                        if (tuple.join('_') === ov.name) {
                             comp.calc = ov.methods.calc
-                            comp.exec_script()
+                            if (!comp.calc) continue
+                            let calc = comp.calc.toString()
+                            if (calc !== ov.__prevscript__) {
+                                comp.exec_script()
+                            }
+                            ov.__prevscript__ = calc
                         }
                     }
                 }
             },
             deep: true
-        }
+        },
+        // Redraw on the shader list change
+        shaders(n, p) { this.redraw() }
     },
     data() {
         return {

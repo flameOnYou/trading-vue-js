@@ -8,14 +8,15 @@ export default class Pin {
 
         this.RADIUS = comp.$props.config.PIN_RADIUS || 5.5
         this.RADIUS_SQ = Math.pow(this.RADIUS + 7, 2)
-        this.COLOR_BACK = comp.$props.colors.colorBack
-        this.COLOR_BR = comp.$props.colors.colorText
+        this.COLOR_BACK = comp.$props.colors.back
+        this.COLOR_BR = comp.$props.colors.text
 
         this.comp = comp
         this.layout = comp.layout
         this.mouse = comp.mouse
         this.name = name
         this.state = params.state || 'settled'
+        this.hidden = params.hidden || false
 
         this.mouse.on('mousemove', e => this.mousemove(e))
         this.mouse.on('mousedown', e => this.mousedown(e))
@@ -40,6 +41,7 @@ export default class Pin {
     }
 
     draw(ctx) {
+        if (this.hidden) return
         switch (this.state) {
             case 'tracking':
                 break
@@ -54,6 +56,7 @@ export default class Pin {
 
     draw_circle(ctx) {
 
+        this.layout = this.comp.layout
         if (this.comp.selected) {
             var r = this.RADIUS, lw = 1.5
         } else {
@@ -93,6 +96,7 @@ export default class Pin {
     update_from(data, emit = false) {
 
         if (!data) return
+        this.layout = this.comp.layout
 
         this.y$ = data[1]
         this.y = this.layout.$2screen(this.y$)
@@ -137,6 +141,7 @@ export default class Pin {
                 this.comp.$emit('scroll-lock', false)
                 break
             case 'settled':
+                if (this.hidden) return
                 if (this.hover()) {
                     this.state = 'dragging'
                     this.moved = false

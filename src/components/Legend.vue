@@ -5,7 +5,7 @@
          class="trading-vue-ohlcv"
         :style = "{ 'max-width': common.width + 'px' }">
         <span class="t-vue-title"
-             :style="{ color: common.colors.colorTitle }">
+             :style="{ color: common.colors.title }">
               {{common.title_txt}}
         </span>
         O<span class="t-vue-lspan" >{{ohlcv[0]}}</span>
@@ -59,6 +59,13 @@ export default {
             }
             const prec = this.layout.prec
 
+            // TODO: main the main legend more customizable
+            let id = this.main_type + '_0'
+            let meta = this.$props.meta_props[id] || {}
+            if (meta.legend) {
+                return (meta.legend() || []).map(x => x.value)
+            }
+
             return [
                 this.$props.values.ohlcv[1].toFixed(prec),
                 this.$props.values.ohlcv[2].toFixed(prec),
@@ -74,6 +81,7 @@ export default {
             const values = this.$props.values
             const f = this.format
             var types = {}
+
             return this.json_data.filter(
                 x => x.settings.legend !== false && !x.main
             ).map(x => {
@@ -82,7 +90,7 @@ export default {
                 return {
                     v: 'display' in x.settings ? x.settings.display : true,
                     name: x.name || id,
-                    index: this.json_data.indexOf(x),
+                    index: (this.off_data || this.json_data).indexOf(x),
                     id: id,
                     values: values ? f(id, values) : this.n_a(1),
                     unk: !(id in (this.$props.meta_props || {})),
@@ -92,8 +100,11 @@ export default {
         },
         calc_style() {
             let top = this.layout.height > 150 ? 10 : 5
+            let grids = this.$props.common.layout.grids
+            let w = grids[0] ? grids[0].width : undefined
             return {
                 top: `${this.layout.offset + top}px`,
+                width: `${w-20}px`
             }
         },
         layout() {
@@ -102,6 +113,13 @@ export default {
         },
         json_data() {
             return this.$props.common.data
+        },
+        off_data() {
+            return this.$props.common.offchart
+        },
+        main_type() {
+            let f = this.common.data.find(x => x.main)
+            return f ? f.type : undefined
         }
     },
     methods: {

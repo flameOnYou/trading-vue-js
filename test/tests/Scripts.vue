@@ -53,7 +53,8 @@ return {
             let l = start + i * step
             this[0].push(ema(close, l)[0])
         }
-    \`
+    \`,
+    post: \`// After the updates\`
 }
 `
 
@@ -104,7 +105,7 @@ export default {
             }),
             width: window.innerWidth,
             height: window.innerHeight,
-            pane: window.innerWidth * 0.35,
+            pane: Math.floor(window.innerWidth * 0.35),
             ov: [ScriptOverlay],
             src: DEF_SRC
         }

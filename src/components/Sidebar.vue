@@ -32,7 +32,7 @@ export default {
                 height: layout.height,
             },
             style: {
-                backgroundColor: this.$props.colors.colorBack
+                backgroundColor: this.$props.colors.back
             },
         })
     },
@@ -48,6 +48,9 @@ export default {
         rerender() {
             this.$nextTick(() => this.redraw())
         }
+    },
+    beforeDestroy () {
+        if(this.renderer) this.renderer.destroy()
     }
 }
 

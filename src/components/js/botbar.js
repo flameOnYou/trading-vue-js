@@ -27,18 +27,18 @@ export default class Botbar {
 
         const sb = this.layout.grids[0].sb
 
-        this.ctx.fillStyle = this.$p.colors.colorBack
+        this.ctx.fillStyle = this.$p.colors.back
         this.ctx.font = this.$p.font
         this.ctx.fillRect(0, 0, width, height)
 
-        this.ctx.strokeStyle = this.$p.colors.colorScale
+        this.ctx.strokeStyle = this.$p.colors.scale
 
         this.ctx.beginPath()
         this.ctx.moveTo(0, 0.5)
         this.ctx.lineTo(Math.floor(width + 1), 0.5)
         this.ctx.stroke()
 
-        this.ctx.fillStyle = this.$p.colors.colorText
+        this.ctx.fillStyle = this.$p.colors.text
         this.ctx.beginPath()
 
         for (var p of this.layout.botbar.xs) {
@@ -67,9 +67,14 @@ export default class Botbar {
     }
 
     apply_shaders() {
-        for (var s of this.$p.shaders) {
+        let layout = this.layout.grids[0]
+        let props = {
+            layout: layout,
+            cursor: this.$p.cursor
+        }
+        for (var s of this.comp.bot_shaders) {
             this.ctx.save()
-            s.draw(this.ctx)
+            s.draw(this.ctx, props)
             this.ctx.restore()
         }
     }
@@ -77,7 +82,7 @@ export default class Botbar {
     panel() {
 
         let lbl = this.format_cursor_x()
-        this.ctx.fillStyle = this.$p.colors.colorPanel
+        this.ctx.fillStyle = this.$p.colors.panel
 
         let measure = this.ctx.measureText(lbl + '    ')
         let panwidth = Math.floor(measure.width)
@@ -87,19 +92,22 @@ export default class Botbar {
         let panheight = this.comp.config.PANHEIGHT
         this.ctx.fillRect(x, y, panwidth, panheight + 0.5)
 
-        this.ctx.fillStyle = this.$p.colors.colorTextHL
+        this.ctx.fillStyle = this.$p.colors.textHL
         this.ctx.textAlign = 'center'
         this.ctx.fillText(lbl, cursor, y + 16)
 
     }
 
-    // TODO: implement time zones
     format_date(p) {
         let t = p[1][0]
         t = this.grid_0.ti_map.i2t(t)
+        let ti = this.$p.layout.grids[0].ti_map.tf
+        // Enagle timezones only for tf < 1D
+        let k = ti < DAY ? 1 : 0
+        let tZ = t + k * this.$p.timezone * HOUR
 
         //t += new Date(t).getTimezoneOffset() * MINUTE
-        let d = new Date(t)
+        let d = new Date(tZ)
 
         if (p[2] === YEAR || Utils.year_start(t) === t) {
             return d.getUTCFullYear()
@@ -107,7 +115,8 @@ export default class Botbar {
         if (p[2] === MONTH || Utils.month_start(t) === t) {
             return MONTHMAP[d.getUTCMonth()]
         }
-        if (Utils.day_start(t) === t) return d.getDate()
+        // TODO(*) see grid_maker.js
+        if (Utils.day_start(tZ) === tZ) return d.getUTCDate()
 
         let h = Utils.add_zero(d.getUTCHours())
         let m = Utils.add_zero(d.getUTCMinutes())
@@ -119,9 +128,13 @@ export default class Botbar {
 
         let t = this.$p.cursor.t
         t = this.grid_0.ti_map.i2t(t)
-        let ti = this.$p.interval
+        //let ti = this.$p.interval
+        let ti = this.$p.layout.grids[0].ti_map.tf
+        // Enagle timezones only for tf < 1D
+        let k = ti < DAY ? 1 : 0
+
         //t += new Date(t).getTimezoneOffset() * MINUTE
-        let d = new Date(t)
+        let d = new Date(t + k * this.$p.timezone * HOUR)
 
         if (ti === YEAR) {
             return d.getUTCFullYear()

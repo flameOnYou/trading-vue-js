@@ -25,7 +25,7 @@ export default class Sidebar {
     }
 
     listeners() {
-        var mc = new Hammer.Manager(this.canvas)
+        let mc = this.mc = new Hammer.Manager(this.canvas)
         mc.add(new Hammer.Pan({
             direction: Hammer.DIRECTION_VERTICAL,
             threshold: 1
@@ -97,7 +97,7 @@ export default class Sidebar {
         var x, y, w, h, side = this.side
         var sb = this.layout.sb
 
-        this.ctx.fillStyle = this.$p.colors.colorBack
+        this.ctx.fillStyle = this.$p.colors.back
         this.ctx.font = this.$p.font
 
         switch(side) {
@@ -109,7 +109,7 @@ export default class Sidebar {
 
                 this.ctx.fillRect(x, y, w, h)
 
-                this.ctx.strokeStyle = this.$p.colors.colorScale
+                this.ctx.strokeStyle = this.$p.colors.scale
 
                 this.ctx.beginPath()
                 this.ctx.moveTo(x + 0.5, 0)
@@ -124,7 +124,7 @@ export default class Sidebar {
                 h = this.layout.height
                 this.ctx.fillRect(x, y, w, h)
 
-                this.ctx.strokeStyle = this.$p.colors.colorScale
+                this.ctx.strokeStyle = this.$p.colors.scale
 
                 this.ctx.beginPath()
                 this.ctx.moveTo(x + 0.5, 0)
@@ -133,7 +133,7 @@ export default class Sidebar {
                 break
         }
 
-        this.ctx.fillStyle = this.$p.colors.colorText
+        this.ctx.fillStyle = this.$p.colors.text
         this.ctx.beginPath()
 
         for (var p of points) {
@@ -163,15 +163,20 @@ export default class Sidebar {
     }
 
     apply_shaders() {
+        let layout = this.$p.layout.grids[this.id]
+        let props = {
+            layout: layout,
+            cursor: this.$p.cursor
+        }
         for (var s of this.$p.shaders) {
             this.ctx.save()
-            s.draw(this.ctx)
+            s.draw(this.ctx, props)
             this.ctx.restore()
         }
     }
 
     upper_border() {
-        this.ctx.strokeStyle = this.$p.colors.colorScale
+        this.ctx.strokeStyle = this.$p.colors.scale
         this.ctx.beginPath()
         this.ctx.moveTo(0, 0.5)
         this.ctx.lineTo(this.layout.width, 0.5)
@@ -186,7 +191,7 @@ export default class Sidebar {
         }
 
         let lbl = this.$p.cursor.y$.toFixed(this.layout.prec)
-        this.ctx.fillStyle = this.$p.colors.colorPanel
+        this.ctx.fillStyle = this.$p.colors.panel
 
         let panwidth = this.layout.sb + 1
 
@@ -194,7 +199,7 @@ export default class Sidebar {
         let y = this.$p.cursor.y - PANHEIGHT * 0.5 - 0.5
         let a = 7
         this.ctx.fillRect(x - 0.5, y, panwidth, PANHEIGHT)
-        this.ctx.fillStyle = this.$p.colors.colorTextHL
+        this.ctx.fillStyle = this.$p.colors.textHL
         this.ctx.textAlign = 'left'
         this.ctx.fillText(lbl, a, y + 15)
 
@@ -246,7 +251,7 @@ export default class Sidebar {
         this.zoom = 1.0
         // TODO: further work (improve scaling ratio)
         if (delta < 0) delta /= 3.75  // Btw, idk why 3.75, but it works
-        delta *= 0.25 
+        delta *= 0.25
         this.y_range = [
             this.layout.$_hi,
             this.layout.$_lo
@@ -276,6 +281,10 @@ export default class Sidebar {
             grid_id: this.id,
             drugging: false
         })
+    }
+
+    destroy() {
+        if (this.mc) this.mc.destroy()
     }
 
     mousemove() { }

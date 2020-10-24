@@ -7,6 +7,7 @@
 import ScriptStd from './script_std.js'
 import se from './script_engine.js'
 import * as u from './script_utils.js'
+import TS from './script_ts.js'
 
 const FDEFS1 = /(function |)([$A-Z_][0-9A-Z_$\.]*)[\s]*?\((.*\s*)\)/gmi
 const FDEFS2 = /(function |)([$A-Z_][0-9A-Z_$\.]*)[\s]*?\((.*\s*)\)/gmis
@@ -16,16 +17,21 @@ export default class ScriptEnv {
 
     constructor(s, data) {
 
-        this.std = new ScriptStd(this)
+        this.std = se.std_inject(new ScriptStd(this))
+        this.id = s.uuid
         this.src = s
-        this.output = []
+        this.output = TS('output', [])
         this.data = []
         this.tss = {}
         this.shared = data
         this.output.box_maker = this.make_box(s.src)
-        this.output.box_maker(this, data)
-        delete this.output.box_maker
+        this.onchart = {}
+        this.offchart = {}
+    }
 
+    build() {
+        this.output.box_maker(this, this.shared, se)
+        delete this.output.box_maker
     }
 
     init() {
@@ -35,12 +41,6 @@ export default class ScriptEnv {
     step(unshift = true) {
         if (unshift) this.unshift()
         let v = this.output.update()
-
-        if (this.skip) {
-            this.skip = false
-            return
-        }
-
         this.copy(v, unshift)
         this.limit()
     }
@@ -49,13 +49,15 @@ export default class ScriptEnv {
         this.output.unshift(undefined)
         // Update all temp symbols
         for (var id in this.tss) {
+            if (this.tss[id].__tf__) continue
             this.tss[id].unshift(undefined)
         }
     }
 
     // Limit env.output length
     limit() {
-        this.output.length = 200 // DEF_LIMIT
+        let out = this.output
+        out.length = out.__len__ || DEF_LIMIT
         for (var id in this.tss) {
             let ts = this.tss[id]
             //console.log(ts.__id__, ts.__len__)
@@ -65,14 +67,20 @@ export default class ScriptEnv {
 
     // Copy the recent value to the direct buff
     copy(v, unshift = true) {
-        if (v !== undefined) this.output[0] = v
+        let off = this.output.__offset__
+        if (v != undefined) {
+            this.output[0] = v.__id__ ? v[0] : v
+            off = off || v.__offset__
+        }
         let val = this.output[0]
+        let t = se.t
+        if (off) t += off * se.tf
         if (val == null || !val.length) {
             // Number / object
-            var point = [se.t, val]
+            var point = [t, val]
         } else {
             // Array
-            point = [se.t, ...val]
+            point = [t, ...val]
         }
         if (unshift) {
             this.data.push(point)
@@ -94,36 +102,59 @@ export default class ScriptEnv {
 
         let props = ``
 
-        for (var k in src.props) {
+        for (var k in src.props || {}) {
             let val = JSON.stringify(src.props[k].val)
             props += `var ${k} = ${val}\n`
         }
         // TODO: add argument values to _id
-        // TODO: prefix all function by ns, e.g std_nz()
+
+        let tss = ``
+        for (var k in this.shared) {
+            if (this.shared[k] && this.shared[k].__id__) {
+                tss += `const ${k} = shared.${k}\n`
+            }
+        }
+
+        // Datasets
+        let dss = ``
+        for (var k in src.data || {}) {
+            let id = se.match_ds(this.id, src.data[k].type)
+            if (!this.shared.dss[id]) {
+                let T = src.data[k].type
+                console.warn(`Dataset '${T}' is undefined`)
+                continue
+            }
+            dss += `const ${k} = shared.dss['${id}'].data\n`
+        }
 
         try {
-            return Function('self,shared', `
+            return Function('self,shared,se', `
                 'use strict';
 
                 // Built-in functions (aliases)
                 ${std}
 
+                // Modules (API / interfaces)
+                ${this.make_modules()}
+
                 // Timeseries
-                const open = shared.open
-                const high = shared.high
-                const low = shared.low
-                const close = shared.close
-                const vol = shared.vol
+                ${tss}
 
                 // Direct data ts
                 const data = self.data
-                const ohlcv = shared.ohlcv
+                const ohlcv = shared.dss.ohlcv.data
+                ${dss}
 
                 // Script's properties (init)
                 ${props}
 
-                this.init = () => {
-                    ${src.init_src}
+                // Globals
+                const settings = self.src.sett
+                const tf = shared.tf
+                const range = shared.range
+
+                this.init = (_id = 'root') => {
+                    ${this.prep(src.init_src)}
                 }
 
                 this.update = (_id = 'root') => {
@@ -131,14 +162,30 @@ export default class ScriptEnv {
                     const iter = shared.iter()
                     ${this.prep(src.upd_src)}
                 }
+
+                this.post = (_id = 'root') => {
+                    ${this.prep(src.post_src)}
+                }
             `)
         } catch(e) {
             return Function('self,shared', `
                 'use strict';
                 this.init = () => {}
                 this.update = () => {}
+                this.post = () => {}
             `)
         }
+    }
+
+    // Make definitions for modules
+    make_modules() {
+        let s = ``
+        for (var id in se.mods) {
+            if (!se.mods[id].api) continue
+            s += `const ${id} = se.mods['${id}'].api[self.id]`
+            s += '\n'
+        }
+        return s
     }
 
     // Preprocess the update function.
@@ -147,7 +194,7 @@ export default class ScriptEnv {
     // TODO: implement recursive prepping (with js syntax parser)
     prep(src) {
 
-        //console.log('Before -----> \n', src)
+        // console.log('Before -----> \n', src)
 
         let h = this.src.use_for[0] // TODO: add props here
         src = '\t\t  let _pref = `${_id}<-'+h+'<-`\n' + src
@@ -179,7 +226,7 @@ export default class ScriptEnv {
 
         // console.log('After ----->\n', u.wrap_idxs(src))
 
-        return u.wrap_idxs(src)
+        return u.wrap_idxs(src, 'std_')
     }
 
     // Postfix function calls with ts _ids
@@ -230,13 +277,15 @@ export default class ScriptEnv {
         if (!m[3].trim().length) return []
         let arr = m[3].split(',')
             .map(x => x.trim())
-            .filter(x => x !== '_id')
+            .filter(x => x !== '_id' && x !== '_tf')
         return arr
     }
 
     get_args_2(str) {
         let parts = []
         let c = 0
+        let s = 0
+        var q1 = false, q2 = false, q3 = false
         let part
         for (var i = 0; i < str.length; i++) {
             if (str[i] === '(') {
@@ -244,7 +293,12 @@ export default class ScriptEnv {
                 if (!part) part = [i+1]
             }
             if (str[i] === ')') c--
-            if (str[i] === ',' && c === 1) {
+            if (str[i] === '[') s++
+            if (str[i] === ']') s--
+            if (str[i] === "'") q1 = !q1
+            if (str[i] === '"') q2 = !q2
+            if (str[i] === '`') q3 = !q3
+            if (str[i] === ',' && c === 1 && !s && !q1 && !q2 && !q3) {
                 if (part) {
                     part[1] = i
                     parts.push(part)
@@ -263,5 +317,12 @@ export default class ScriptEnv {
 
     regex_clone(rex) {
         return new RegExp(rex.source, rex.flags)
+    }
+
+    send_modify(upd) {
+        se.send('modify-overlay', {
+            uuid: this.id,
+            fields: upd
+        })
     }
 }

@@ -235,6 +235,7 @@ export default {
                 el = doc.createElement("div")
                 el.id = id
                 el.style.position = 'absolute'
+                el.style.top = '-1000px'
                 base.appendChild(el)
             }
             if(ctx.font) el.style.font = ctx.font
@@ -257,6 +258,39 @@ export default {
 
     uuid2() {
         return this.uuid('xxxxxxxxxxxx')
+    },
+
+    // Delayed warning, f = condition lambda fn
+    warn(f, text, delay = 0) {
+        setTimeout(() => {
+            if (f()) console.warn(text)
+        }, delay)
+    },
+
+    // Checks if script props updated
+    // (and not style settings or something else)
+    is_scr_props_upd(n, prev) {
+        let p = prev.find(x => x.v.$uuid === n.v.$uuid)
+        if (!p) return false
+
+        let props = n.p.settings.$props
+        if (!props) return false
+
+        return props.some(x => n.v[x] !== p.v[x])
+    },
+
+    // Checks if it's time to make a script update
+    // (based on execInterval in ms)
+    delayed_exec(v) {
+        if (!v.script.execInterval) return true
+        let t = this.now()
+        let dt = v.script.execInterval
+        if (!v.settings.$last_exec ||
+            t > v.settings.$last_exec + dt) {
+            v.settings.$last_exec = t
+            return true
+        }
+        return false
     }
 
 }

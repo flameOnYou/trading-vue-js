@@ -3,7 +3,7 @@
     <div class="trading-vue-toolbar" :style="styles"
         :key="tool_count">
         <toolbar-item v-for="(tool, i) in data.tools"
-            v-if="tool.icon"
+            v-if="tool.icon && !tool.hidden"
             @item-selected="selected"
             :key="i"
             :data="tool"
@@ -25,7 +25,6 @@ export default {
     ],
     components: { ToolbarItem },
     mounted() {
-
     },
     methods: {
         selected(tool) {
@@ -39,9 +38,9 @@ export default {
             let colors = this.$props.colors
             let b = this.$props.config.TB_BORDER
             let w = this.$props.config.TOOLBAR - b
-            let c = colors.colorGrid
-            let cb = colors.colorTbBack || colors.colorBack
-            let brd = colors.colorTbBorder || colors.colorScale
+            let c = colors.grid
+            let cb = colors.tbBack || colors.back
+            let brd = colors.tbBorder || colors.scale
             let st = this.$props.config.TB_B_STYLE
             return {
                 'width': `${w}px`,

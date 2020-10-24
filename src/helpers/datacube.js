@@ -11,13 +11,21 @@ import AggTool from './agg_tool.js'
 // Interface methods. Private methods in dc_core.js
 export default class DataCube extends DCCore {
 
-    constructor(data = {}, sett = {
-        aggregation: 100,       // Update aggregation interval
-        script_depth: 0,        // 0 === Exec on all data
-        auto_scroll: true       // Auto scroll to a new candle
-    }) {
+    constructor(data = {}, sett = {}) {
+
+        let def_sett = {
+            aggregation: 100,       // Update aggregation interval
+            script_depth: 0,        // 0 === Exec on all data
+            auto_scroll: true,      // Auto scroll to a new candle
+            scripts: true,          // Enable overlays scripts,
+            ww_ram_limit: 0,        // TODO: WebWorker RAM limit
+            node_url: null,         // Use node.js instead of WW
+            shift_measure: true     // Draw measurment shift+click
+        }
+        sett = Object.assign(def_sett, sett)
 
         super()
+        this.sett = sett
         this.data = data
         this.sett = SettProxy(sett, this.ww)
         this.agg = new AggTool(sett.aggregation)
@@ -101,7 +109,7 @@ export default class DataCube extends DCCore {
         for (var obj of objects) {
 
             // Find current index of the field (if not defined)
-            let i = obj.i !== undefined ?
+            let i = typeof obj.i !== 'number' ?
                 obj.i : obj.p.indexOf(obj.v)
 
             if (i !== -1) {
@@ -114,8 +122,6 @@ export default class DataCube extends DCCore {
     }
 
     // Update/append data point, depending on timestamp
-    // v2.0 TODO: to web worker
-    //
     update(data) {
         if(data['candle']) {
             return this.update_candle(data)

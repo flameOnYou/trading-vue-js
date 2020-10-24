@@ -42,13 +42,7 @@ export default {
             this.height = window.innerHeight - 50
         },
         on_selected(tf) {
-            // TODO: This does not update the interval:
-            // this.chart.set('chart.data', this.charts[tf.name])
-
-            // Works only with a full update:
-            this.chart = new DataCube({
-                ohlcv: this.charts[tf.name]
-            })
+            this.chart.set('chart.data', this.charts[tf.name])
             this.$refs.tradingVue.resetChart()
             this.log_scale = false
         }
@@ -56,7 +50,8 @@ export default {
     mounted() {
         window.addEventListener('resize', this.onResize)
         this.onResize()
-        window.DataCube = this.chart // Debug
+        window.dc = this.chart
+        window.tv = this.$refs.tradingVue
     },
     computed: {
         colors() {

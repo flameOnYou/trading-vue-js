@@ -1,8 +1,9 @@
 
-// DataCube private methods
+// DataCube "private" methods
 
 import Utils from '../stuff/utils.js'
 import DCEvents from './dc_events.js'
+import Dataset from './dataset.js'
 
 export default class DCCore extends DCEvents {
 
@@ -22,6 +23,8 @@ export default class DCCore extends DCEvents {
             this.tv.$watch(() => this.get('.')
                 .map(x => x.settings.$uuid),
                 (n, p) => this.on_ids_changed(n, p))
+
+            // TODO: Watch for all 'datasets' changes
         }
     }
 
@@ -49,6 +52,16 @@ export default class DCCore extends DCEvents {
 
         // Remove ohlcv cuz we have Data v1.1^
         delete this.data.ohlcv
+
+        if (!('datasets' in this.data)) {
+            this.tv.$set(this.data, 'datasets', [])
+        }
+
+        // Init dataset proxies
+        for (var ds of this.data.datasets) {
+            if (!this.dss) this.dss = {}
+            this.dss[ds.id] = new Dataset(this, ds)
+        }
 
     }
 
@@ -113,7 +126,7 @@ export default class DCCore extends DCEvents {
             let i = count[ov.type]++
             ov.id = `onchart.${ov.type}${i}`
             if (!ov.name) ov.name = ov.type + ` ${i}`
-            if (!ov.settings) ov.settings = {}
+            if (!ov.settings) this.tv.$set(ov, 'settings', {})
 
             // grid_id,layer_id => DC id mapping
             this.gldc[`g0_${ov.type}_${i}`] = ov.id
@@ -129,7 +142,7 @@ export default class DCCore extends DCEvents {
             let i = count[ov.type]++
             ov.id = `offchart.${ov.type}${i}`
             if (!ov.name) ov.name = ov.type + ` ${i}`
-            if (!ov.settings) ov.settings = {}
+            if (!ov.settings) this.tv.$set(ov, 'settings', {})
 
             // grid_id,layer_id => DC id mapping
             gid++
@@ -228,6 +241,7 @@ export default class DCCore extends DCEvents {
                 break
             case 'onchart':
             case 'offchart':
+            case 'datasets':
                 result = this.query_search(query, tuple)
                 break
             default:
@@ -249,8 +263,8 @@ export default class DCCore extends DCEvents {
                 result = [/*ch[0],*/ ...on, ...off]
                 break
         }
-
-        return result.filter(x => !x.v.locked || chuck)
+        return result.filter(
+            x => !(x.v || {}).locked || chuck)
     }
 
     chart_as_piv(tuple) {
@@ -273,14 +287,13 @@ export default class DCCore extends DCEvents {
         let path = tuple[1] || ''
         let field = tuple[2]
 
-        let arr = this.data[side].filter(
-            x => x.id && x.name && x.settings && (
-                 x.id === query ||
-                 x.id.includes(path) ||
-                 x.name === query ||
-                 x.name.includes(path) ||
-                 query.includes(x.settings.$uuid)
-            ))
+        let arr = this.data[side].filter(x => (
+            x.id === query ||
+            (x.id && x.id.includes(path)) ||
+            x.name === query ||
+            (x.name && x.name.includes(path)) ||
+            query.includes((x.settings || {}).$uuid)
+        ))
 
         if (field) {
             return arr.map(x => ({
@@ -455,7 +468,10 @@ export default class DCCore extends DCEvents {
     }
 
     scroll_to(t) {
-        // TODO: implement
+        if (tv.$refs.chart.cursor.locked) return
+        let tl = tv.$refs.chart.last_candle[0]
+        let d = this.tv.getRange()[1] - tl
+        if (d > 0) this.tv.goto(t + d)
     }
 
 }
